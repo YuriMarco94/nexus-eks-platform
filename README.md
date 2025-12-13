@@ -2,73 +2,71 @@
 
 Infraestrutura AWS EKS completa seguindo as melhores práticas do mercado.
 
-## 📋 Visão Geral
+Infrastructure as Code platform for AWS EKS with Terraform and GitHub Actions CI/CD.
 
-Este projeto provisiona uma infraestrutura EKS completa na AWS com:
-- ✅ Cluster EKS altamente disponível
-- ✅ VPC com subnets públicas e privadas
-- ✅ Managed Node Groups com auto-scaling
-- ✅ IAM Roles for Service Accounts (IRSA)
-- ✅ Observabilidade (Prometheus + Grafana)
-- ✅ Kubernetes Dashboard
-- ✅ Ingress Controller
-- ✅ Backup e recuperação de estado
+## 📋 Features
 
-## 🏗️ Arquitetura
-┌─────────────────────────────────────────────────────────┐
-│ AWS Account │
-│ │
-│ ┌─────────────────────────────────────────────────┐ │
-│ │ VPC │ │
-│ │ ┌─────────────┐ ┌─────────────┐ │ │
-│ │ │ Public │ │ Private │ │ │
-│ │ │ Subnets │ │ Subnets │ │ │
-│ │ └──────┬──────┘ └──────┬──────┘ │ │
-│ │ │ │ │ │
-│ │ ┌──────▼──────┐ ┌──────▼──────┐ │ │
-│ │ │ IGW │ │ NAT GW │ │ │
-│ │ └─────────────┘ └─────────────┘ │ │
-│ │ │ │ │ │
-│ │ ┌──────▼────────────────▼──────┐ │ │
-│ │ │ EKS Cluster │ │ │
-│ │ │ ┌─────────────────────┐ │ │ │
-│ │ │ │ Control Plane │ │ │ │
-│ │ │ └─────────────────────┘ │ │ │
-│ │ │ │ │ │
-│ │ │ ┌─────────────────────┐ │ │ │
-│ │ │ │ Worker Nodes │ │ │ │
-│ │ │ │ • Managed Groups │ │ │ │
-│ │ │ │ • Auto-scaling │ │ │ │
-│ │ │ └─────────────────────┘ │ │ │
-│ │ └──────────────────────────────┘ │ │
-│ └─────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────┘
+- ✅ **Multi-environment** (dev, staging, prod)
+- ✅ **GitHub Actions CI/CD** with automated deployments
+- ✅ **Modular Terraform** architecture
+- ✅ **Kubernetes manifests** with Kustomize
+- ✅ **Security best practices** (IAM, Security Groups)
+- ✅ **Monitoring** (CloudWatch, optional Prometheus)
+- ✅ **Automated backups** with Terraform state locking
 
+## 🏗️ Architecture
+┌─────────────────────────────────────────────────────────────┐
+│ GitHub Repository │
+│ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ │
+│ │ Terraform │ │ K8s YAML │ │ Workflows │ │
+│ │ Code │ │ Manifests │ │ (CI/CD) │ │
+│ └──────┬───────┘ └──────┬───────┘ └──────┬───────┘ │
+└─────────┼─────────────────┼──────────────────┼──────────────┘
+│ │ │
+▼ ▼ ▼
+┌─────────┼─────────────────┼──────────────────┼──────────────┐
+│ GitHub Actions Runner │ │ │
+│ ┌───────────────────────▼──────────────────▼────────────┐ │
+│ │ Terraform Apply │ │
+│ └───────────────────────────┬───────────────────────────┘ │
+└──────────────────────────────┼──────────────────────────────┘
+▼
+┌─────────────────────┐
+│ AWS Cloud │
+│ ┌──────────────┐ │
+│ │ EKS │ │
+│ │ Cluster │ │
+│ └──────────────┘ │
+└─────────────────────┘
 
 ## 🚀 Quick Start
 
-### Pré-requisitos
+### Prerequisites
 
-1. **AWS CLI** configurado
-2. **Terraform** >= 1.5.0
-3. **kubectl** >= 1.28
-4. **helm** >= 3.10
+- **AWS Account** with appropriate permissions
+- **AWS CLI** configured (`aws configure --profile nexus-alpha`)
+- **Terraform** (>= 1.9.0)
+- **kubectl** and **helm**
+- **GitHub Repository** with secrets configured
 
-### Deploy para ambiente DEV
+### Local Deployment
 
 ```bash
-# Clone o repositório
-git clone https://github.com/seu-org/aws-eks-nexus.git
-cd aws-eks-nexus
+# Clone repository
+git clone https://github.com/YOUR_USER/nexus-eks-platform.git
+cd nexus-eks-platform
 
-# Configure credenciais AWS
-export AWS_PROFILE=nexus-dev
+# Initialize Terraform
+make init
 
-# Execute deploy completo
-make deploy ENVIRONMENT=dev
+# Plan changes
+make plan
 
-# Ou passo a passo:
-make init ENVIRONMENT=dev
-make plan ENVIRONMENT=dev
-make apply ENVIRONMENT=dev
-make kubeconfig ENVIRONMENT=dev
+# Apply infrastructure
+make apply
+
+# Configure kubectl
+make kube-config
+
+# Verify cluster
+make kube-nodes

@@ -1,0 +1,61 @@
+name: Main Pipeline - EKS Complete
+
+on:
+  push:
+    branches:
+      - master
+      - develop
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      skip-terraform:
+        description: "Skip Terraform"
+        required: false
+        default: false
+        type: boolean
+      skip-build:
+        description: "Skip Build"
+        required: false
+        default: false
+        type: boolean
+      skip-deploy:
+        description: "Skip Deploy"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  call-complete-pipeline:
+    uses: ./.github/workflows/deploy-template-complete.yml
+    with:
+      # Configurações principais
+      environment: ${{ github.event.inputs.environment || 'dev' }}
+      project-name: "Nexus"
+      aws-region: "us-east-1"
+      
+      # Configurações específicas do seu projeto
+      terraform-path: "terraform/environments/${{ github.event.inputs.environment || 'dev' }}"
+      docker-image-name: "demo-app"
+      dockerfile-path: "Dockerfile"
+      context: "."
+      k8s-manifest-path: "kubernetes"
+      k8s-overlay: "${{ github.event.inputs.environment || 'dev' }}"
+      
+      # Controles de execução
+      skip-terraform: ${{ github.event.inputs.skip-terraform || false }}
+      skip-build: ${{ github.event.inputs.skip-build || false }}
+      skip-deploy: ${{ github.event.inputs.skip-deploy || false }}
+      deploy-addons: true
+      
+    secrets: inherit
