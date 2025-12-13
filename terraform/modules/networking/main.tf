@@ -216,15 +216,15 @@ resource "aws_security_group_rule" "nodes_ingress_cluster" {
   type                     = "ingress"
 }
 
-resource "aws_security_group_rule" "nodes_ingress_cluster_ephemeral" {
-  description              = "Allow cluster to nodes ephemeral ports"
-  from_port                = 1025
-  to_port                  = 65535
-  protocol                 = "tcp"
-  security_group_id        = aws_security_group.eks_nodes.id
-  source_security_group_id = aws_security_group.eks_cluster.id
-  type                     = "ingress"
-}
+#resource "aws_security_group_rule" "nodes_ingress_cluster_ephemeral" {
+#  description              = "Allow cluster to nodes ephemeral ports"
+#  from_port                = 1025
+#  to_port                  = 65535
+#  protocol                 = "tcp"
+#  security_group_id        = aws_security_group.eks_nodes.id
+#  source_security_group_id = aws_security_group.eks_cluster.id
+#  type                     = "ingress"
+#}
 
 resource "aws_security_group_rule" "nodes_egress_all" {
   description       = "Allow all egress from nodes"
