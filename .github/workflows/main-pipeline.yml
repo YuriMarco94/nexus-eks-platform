@@ -37,7 +37,7 @@ on:
 
 jobs:
   call-complete-pipeline:
-    # Referência ao template em OUTRO repositório
+    # Referência ao template CORRIGIDO e REORGANIZADO
     uses: YuriMarco94/pipeline-templates/.github/workflows/deploy-template-complete.yml@master
     with:
       # Configurações principais
