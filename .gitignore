@@ -1,0 +1,45 @@
+
+---
+
+## **7. ARQUIVOS DE CONFIGURAÇÃO ADICIONAIS**
+
+### **`.gitignore`**
+```gitignore
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.tfvars.json
+.terraform.lock.hcl
+
+# Kubernetes
+kubeconfig
+*.kubeconfig
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+secrets.auto.tfvars
+*.pem
+*.key
+*.crt
+
+# Local scripts
+scripts/.env

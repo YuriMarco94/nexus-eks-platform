@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: nexus-system
+
+resources:
+  - ../../base
+
+patchesStrategicMerge:
+  - cluster-autoscaler-patch.yaml
+  - resource-limits-patch.yaml
+
+configMapGenerator:
+  - name: environment-config
+    behavior: merge
+    literals:
+      - ENVIRONMENT=dev
+      - LOG_LEVEL=debug
+      - FEATURE_FLAGS=all
+
+commonLabels:
+  environment: dev
+  tier: development

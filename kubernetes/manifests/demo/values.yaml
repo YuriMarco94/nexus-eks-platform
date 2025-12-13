@@ -1,0 +1,31 @@
+# values.yaml para aplicação demo
+replicaCount: 2
+
+image:
+  repository: nginx
+  tag: 1.25-alpine
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+  hosts:
+    - host: demo.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+
+resources:
+  requests:
+    memory: "64Mi"
+    cpu: "100m"
+  limits:
+    memory: "128Mi"
+    cpu: "200m"
