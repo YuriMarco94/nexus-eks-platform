@@ -37,7 +37,8 @@ on:
 
 jobs:
   call-complete-pipeline:
-    uses: ./.github/workflows/deploy-template-complete.yml
+    # Referência ao template em OUTRO repositório
+    uses: YuriMarco94/pipeline-templates/.github/workflows/deploy-template-complete.yml@master
     with:
       # Configurações principais
       environment: ${{ github.event.inputs.environment || 'dev' }}

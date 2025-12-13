@@ -69,4 +69,4 @@ make apply
 make kube-config
 
 # Verify cluster
-make kube-nodes
+make kube-nodes# Testando pipeline
