@@ -43,3 +43,21 @@ secrets.auto.tfvars
 
 # Local scripts
 scripts/.env
+# --- Terraform (NEVER commit state/cache) ---
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/terraform.tfstate
+**/terraform.tfstate.backup
+!**/.terraform.lock.hcl
+
+# --- Local tfvars (commit only *.example) ---
+**/terraform.tfvars
+!**/terraform.tfvars.example
+
+# --- Backups / temp ---
+*.bak
+*.tmp
+*.log
+*~
+

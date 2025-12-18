@@ -1,8 +1,8 @@
-name: Terraform Apply DEV (main)
+name: Terraform Apply DEV (develop)
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "develop" ]
     paths:
       - "terraform/**"
 

@@ -2,7 +2,7 @@ name: Deploy K8s DEV (EKS)
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "develop" ]
     paths:
       - "kubernetes/**"
       - ".github/workflows/deploy-k8s-dev.yml"
@@ -44,7 +44,7 @@ jobs:
           aws eks update-kubeconfig --name "${EKS_CLUSTER_NAME}" --region "${AWS_REGION}"
           kubectl get nodes -o wide
 
-      # ===== Observability =====
+      # ===== Observability: kube-prometheus-stack =====
       - name: Deploy monitoring namespace
         run: |
           kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
@@ -78,7 +78,7 @@ jobs:
           done
           echo "Grafana URL: http://$HOST"
 
-      # ===== Your apps/routes =====
+      # ===== Workloads =====
       - name: Apply base
         run: |
           kubectl apply -k kubernetes/base
@@ -92,8 +92,6 @@ jobs:
         run: |
           GW=$(kubectl -n nginx-gateway get gateway nexus-gw -o jsonpath='{.status.addresses[0].value}')
           echo "Gateway LB: http://$GW"
-          echo "curl http://$GW/dev"
-          echo "curl http://$GW/prod"
           curl -I "http://$GW/dev" || true
           curl -I "http://$GW/prod" || true
 

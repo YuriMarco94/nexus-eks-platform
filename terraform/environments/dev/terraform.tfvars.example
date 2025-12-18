@@ -1,0 +1,3 @@
+# Example only (DO NOT commit real values)
+# cluster_name = "Nexus-dev"
+# aws_region   = "us-east-1"

@@ -2,7 +2,7 @@ name: Terraform Plan (PR)
 
 on:
   pull_request:
-    branches: [ "main" ]
+    branches: [ "master" ]
     paths:
       - "terraform/**"
 
@@ -43,7 +43,8 @@ jobs:
           terraform plan -no-color -out=tfplan
 
   plan-prod:
-    name: Plan PROD
+    name: Plan PROD (if exists)
+    if: ${{ hashFiles('terraform/environments/prod/**') != '' }}
     runs-on: ubuntu-latest
     defaults:
       run:
