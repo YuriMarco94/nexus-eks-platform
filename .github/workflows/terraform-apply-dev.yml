@@ -1,0 +1,41 @@
+name: Terraform Apply DEV (main)
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "terraform/**"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  apply-dev:
+    name: Apply DEV
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: terraform/environments/dev
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::597088058179:role/GitHubActions-EKS-Deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init/validate/apply
+        run: |
+          terraform init -reconfigure
+          terraform validate
+          terraform apply -auto-approve

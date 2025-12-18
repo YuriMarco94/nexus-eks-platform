@@ -1,0 +1,57 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'FinOps Budget Alarms for EKS Platform'
+
+Resources:
+  MonthlyBudgetAlarm:
+    Type: 'AWS::Budgets::Budget'
+    Properties:
+      Budget:
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: ${MONTHLY_BUDGET}
+          Unit: USD
+        CostFilters:
+          TagKeyValue:
+            - "Project${SEPARATOR}Nexus"
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: "alerts-finops@company.com"
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: "alerts-finops@company.com"
+  
+  EC2CostOptimizationAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmName: 'Nexus-EC2-Cost-Optimization'
+      MetricName: 'EstimatedCharges'
+      Namespace: 'AWS/Billing'
+      Statistic: 'Maximum'
+      Period: 86400  # 24 hours
+      EvaluationPeriods: 1
+      Threshold: ${DAILY_EC2_LIMIT}
+      ComparisonOperator: 'GreaterThanThreshold'
+      AlarmActions:
+        - !Sub 'arn:aws:sns:${AWS::Region}:${AWS::AccountId}:cost-alerts'
+      Dimensions:
+        - Name: 'ServiceName'
+          Value: 'AmazonEC2'
+        - Name: 'LinkedAccount'
+          Value: !Ref 'AWS::AccountId'
+
+Outputs:
+  BudgetAlarmARN:
+    Description: 'Budget Alarm ARN'
+    Value: !Ref MonthlyBudgetAlarm

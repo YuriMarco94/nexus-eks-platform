@@ -1,5 +1,3 @@
-# variables.tf - CONTEÚDO COMPLETO
-
 variable "cluster_name" {
   description = "Nome do cluster EKS"
   type        = string
@@ -33,6 +31,7 @@ variable "cluster_role_arn" {
 variable "node_role_arn" {
   description = "ARN da role IAM dos nodes"
   type        = string
+  default     = null
 }
 
 variable "cluster_endpoint_public_access" {
@@ -57,25 +56,6 @@ variable "enabled_cluster_log_types" {
   description = "Tipos de log habilitados"
   type        = list(string)
   default     = []
-}
-
-# NOVAS VARIÁVEIS:
-variable "enable_cluster_autoscaler" {
-  description = "Habilitar Cluster Autoscaler"
-  type        = bool
-  default     = false
-}
-
-variable "enable_aws_load_balancer_controller" {
-  description = "Habilitar AWS Load Balancer Controller"
-  type        = bool
-  default     = false
-}
-
-variable "enable_external_dns" {
-  description = "Habilitar External DNS"
-  type        = bool
-  default     = false
 }
 
 variable "enable_aws_ebs_csi_driver" {

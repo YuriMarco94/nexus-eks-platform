@@ -1,0 +1,104 @@
+name: Deploy K8s DEV (EKS)
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "kubernetes/**"
+      - ".github/workflows/deploy-k8s-dev.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER_NAME: Nexus-dev
+
+jobs:
+  deploy-dev:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::597088058179:role/GitHubActions-EKS-Deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.30.0"
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "v3.15.4"
+
+      - name: Configure kubeconfig
+        run: |
+          aws eks update-kubeconfig --name "${EKS_CLUSTER_NAME}" --region "${AWS_REGION}"
+          kubectl get nodes -o wide
+
+      # ===== Observability =====
+      - name: Deploy monitoring namespace
+        run: |
+          kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create/Update Grafana admin secret (from GitHub Secrets)
+        run: |
+          kubectl -n monitoring create secret generic grafana-admin \
+            --from-literal=admin-user="${{ secrets.GRAFANA_ADMIN_USER }}" \
+            --from-literal=admin-password="${{ secrets.GRAFANA_ADMIN_PASSWORD }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy kube-prometheus-stack
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+          helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+            -n monitoring \
+            -f kubernetes/manifests/monitoring/kube-prometheus-stack-values.yaml
+
+      - name: Wait Grafana
+        run: |
+          kubectl -n monitoring rollout status deploy/kube-prometheus-stack-grafana --timeout=10m || true
+          kubectl -n monitoring get pods
+
+      - name: Print Grafana URL
+        run: |
+          for i in {1..60}; do
+            HOST=$(kubectl -n monitoring get svc kube-prometheus-stack-grafana -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+            if [ -n "$HOST" ]; then break; fi
+            sleep 10
+          done
+          echo "Grafana URL: http://$HOST"
+
+      # ===== Your apps/routes =====
+      - name: Apply base
+        run: |
+          kubectl apply -k kubernetes/base
+
+      - name: Apply overlays (dev/prod) with LoadRestrictionsNone
+        run: |
+          kubectl kustomize kubernetes/overlays/dev --load-restrictor LoadRestrictionsNone | kubectl apply -f -
+          kubectl kustomize kubernetes/overlays/prod --load-restrictor LoadRestrictionsNone | kubectl apply -f -
+
+      - name: Print Gateway URL and test
+        run: |
+          GW=$(kubectl -n nginx-gateway get gateway nexus-gw -o jsonpath='{.status.addresses[0].value}')
+          echo "Gateway LB: http://$GW"
+          echo "curl http://$GW/dev"
+          echo "curl http://$GW/prod"
+          curl -I "http://$GW/dev" || true
+          curl -I "http://$GW/prod" || true
+
+      - name: Summary
+        run: |
+          kubectl get ns | egrep "monitoring|demo|nginx-gateway" || true
+          kubectl -n monitoring get svc || true
+          kubectl get httproute -A || true

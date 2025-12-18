@@ -1,4 +1,6 @@
-# Variáveis principais
+# =========================
+# CORE
+# =========================
 variable "environment" {
   description = "Ambiente de deploy (dev, staging, prod)"
   type        = string
@@ -6,7 +8,7 @@ variable "environment" {
 
   validation {
     condition     = contains(["dev", "staging", "prod"], var.environment)
-    error_message = "Environment deve ser: dev, staging ou prod."
+    error_message = "environment deve ser: dev, staging ou prod."
   }
 }
 
@@ -17,7 +19,7 @@ variable "project_name" {
 
   validation {
     condition     = can(regex("^[A-Z][a-zA-Z0-9-]{1,20}$", var.project_name))
-    error_message = "Nome do projeto deve iniciar com letra maiúscula e ter 2-20 caracteres."
+    error_message = "project_name deve iniciar com letra maiúscula e ter 2-20 caracteres."
   }
 }
 
@@ -28,12 +30,27 @@ variable "aws_region" {
 }
 
 variable "aws_profile" {
-  description = "Perfil AWS CLI para autenticação"
   type        = string
-  default     = "nexus-alpha"
+  default     = null
+  description = "AWS profile local (opcional). No CI, deixe null para usar OIDC."
 }
 
-# Configurações de rede
+# Repo no formato: org/repo (usado no OIDC do GitHub Actions)
+variable "github_repo" {
+  description = "Repo GitHub no formato https://github.com/YuriMarco94/nexus-eks-platform.git"
+  type        = string
+  default     = ""
+}
+
+variable "enable_github_actions_oidc" {
+  description = "Cria OIDC + role para GitHub Actions assumir na AWS"
+  type        = bool
+  default     = true
+}
+
+# =========================
+# NETWORK
+# =========================
 variable "vpc_cidr" {
   description = "CIDR da VPC"
   type        = string
@@ -41,18 +58,20 @@ variable "vpc_cidr" {
 }
 
 variable "private_subnet_cidrs" {
-  description = "CIDRs para subnets privadas"
+  description = "CIDRs para subnets privadas (recomendo mesma quantidade das públicas)"
   type        = list(string)
   default     = ["10.0.1.0/24", "10.0.2.0/24"]
 }
 
 variable "public_subnet_cidrs" {
-  description = "CIDRs para subnets públicas"
+  description = "CIDRs para subnets públicas (recomendo mesma quantidade das privadas)"
   type        = list(string)
   default     = ["10.0.101.0/24", "10.0.102.0/24"]
 }
 
-# Configurações EKS
+# =========================
+# EKS
+# =========================
 variable "eks_cluster_version" {
   description = "Versão do Kubernetes"
   type        = string
@@ -83,7 +102,15 @@ variable "eks_enabled_cluster_log_types" {
   default     = ["api", "audit"]
 }
 
-# Configurações de Node Groups
+variable "enable_aws_ebs_csi_driver" {
+  description = "Instala addon aws-ebs-csi-driver (sem IRSA por enquanto)"
+  type        = bool
+  default     = true
+}
+
+# =========================
+# NODE GROUPS
+# =========================
 variable "eks_managed_node_groups" {
   description = "Configurações dos Managed Node Groups"
   type = map(object({
@@ -125,39 +152,16 @@ variable "eks_managed_node_groups" {
   }
 }
 
-# Tags
+# =========================
+# TAGS
+# =========================
 variable "global_tags" {
-  description = "Tags globais para todos os recursos"
+  description = "Tags globais"
   type        = map(string)
   default = {
-    Project     = "Nexus"
-    ManagedBy   = "Terraform"
-    Repository  = "github.com/org/aws-eks-nexus"
-    CostCenter  = "EAGLE-01"
-    Owner       = "DevOps-Eagles"
-    Environment = "dev"
-  }
-}
-
-# Configuração específica para node groups - sincronizada com locals.tf
-variable "eks_node_group_config" {
-  description = "Configuração simplificada para node groups"
-  type = object({
-    instance_types = list(string)
-    capacity_type  = string
-    min_size       = number
-    max_size       = number
-    desired_size   = number
-    disk_size      = number
-    ami_type       = string
-  })
-  default = {
-    instance_types = ["t3.medium"]
-    capacity_type  = "ON_DEMAND"
-    min_size       = 2
-    max_size       = 4
-    desired_size   = 2
-    disk_size      = 20
-    ami_type       = "AL2_x86_64"
+    ManagedBy  = "Terraform"
+    CostCenter = "EAGLE-01"
+    Owner      = "DevOps-Eagles"
+    Repository = "nexus-eks-platform"
   }
 }

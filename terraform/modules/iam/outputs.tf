@@ -18,12 +18,7 @@ output "eks_node_role_name" {
   value       = aws_iam_role.eks_nodes.name
 }
 
-output "eks_oidc_provider_arn" {
-  description = "ARN do OIDC Provider"
-  value       = try(aws_iam_openid_connect_provider.eks[0].arn, "")
-}
-
-output "eks_oidc_provider_url" {
-  description = "URL do OIDC Provider"
-  value       = try(aws_iam_openid_connect_provider.eks[0].url, "")
+output "github_actions_role_arn" {
+  value       = try(aws_iam_role.github_actions[0].arn, null)
+  description = "ARN da role assumida pelo GitHub Actions via OIDC"
 }

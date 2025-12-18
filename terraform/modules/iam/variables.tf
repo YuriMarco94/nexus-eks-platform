@@ -6,9 +6,10 @@ variable "project_name" {
 variable "environment" {
   description = "Ambiente (dev, staging, prod)"
   type        = string
+
   validation {
     condition     = contains(["dev", "staging", "prod"], var.environment)
-    error_message = "Environment deve ser: dev, staging ou prod."
+    error_message = "environment deve ser: dev, staging ou prod."
   }
 }
 
@@ -17,10 +18,16 @@ variable "cluster_name" {
   type        = string
 }
 
-variable "oidc_provider_url" {
-  description = "URL do OIDC provider do EKS"
+variable "github_repo" {
+  description = "Repo GitHub org/repo (ex: minha-org/nexus-eks-platform)"
   type        = string
   default     = ""
+}
+
+variable "enable_github_actions_oidc" {
+  description = "Cria OIDC + role para GitHub Actions"
+  type        = bool
+  default     = true
 }
 
 variable "tags" {

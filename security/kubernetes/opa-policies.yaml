@@ -1,0 +1,110 @@
+# OPA Gatekeeper Policies for Enterprise Security
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: k8srequiredresources
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sRequiredResources
+      validation:
+        openAPIV3Schema:
+          properties:
+            limits:
+              type: object
+              properties:
+                cpu:
+                  type: string
+                memory:
+                  type: string
+            requests:
+              type: object
+              properties:
+                cpu:
+                  type: string
+                memory:
+                  type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8srequiredresources
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          not container.resources.limits.cpu
+          msg := sprintf("CPU limits not set for container %v", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          not container.resources.limits.memory
+          msg := sprintf("Memory limits not set for container %v", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          not container.resources.requests.cpu
+          msg := sprintf("CPU requests not set for container %v", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          not container.resources.requests.memory
+          msg := sprintf("Memory requests not set for container %v", [container.name])
+        }
+---
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequiredResources
+metadata:
+  name: require-resources
+spec:
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+      - apiGroups: ["apps"]
+        kinds: ["Deployment", "StatefulSet", "DaemonSet"]
+    namespaces:
+      - "production"
+      - "staging"
+  parameters:
+    limits:
+      cpu: "100m"
+      memory: "128Mi"
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+---
+# Deny root containers
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: k8sblockrootcontainers
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sBlockRootContainers
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8sblockrootcontainers
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          container.securityContext.runAsUser == 0
+          msg := sprintf("Container %v is running as root (UID 0)", [container.name])
+        }
+---
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sBlockRootContainers
+metadata:
+  name: block-root-containers
+spec:
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+      - apiGroups: ["apps"]
+        kinds: ["Deployment", "StatefulSet", "DaemonSet"]

@@ -1,0 +1,134 @@
+apiVersion: opentelemetry.io/v1alpha1
+kind: OpenTelemetryCollector
+metadata:
+  name: nexus-collector
+  namespace: observability
+spec:
+  config: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+      jaeger:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:14250
+          thrift_compact:
+            endpoint: 0.0.0.0:6831
+          thrift_binary:
+            endpoint: 0.0.0.0:6832
+          thrift_http:
+            endpoint: 0.0.0.0:14268
+      zipkin:
+        endpoint: 0.0.0.0:9411
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: 'otel-collector'
+              scrape_interval: 10s
+              static_configs:
+                - targets: ['0.0.0.0:8888']
+    
+    processors:
+      batch:
+        timeout: 10s
+        send_batch_size: 10000
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 2000
+        spike_limit_mib: 500
+      resource:
+        attributes:
+          - key: k8s.cluster.name
+            value: ${CLUSTER_NAME}
+            action: upsert
+          - key: k8s.namespace.name
+            from_attribute: k8s.namespace.name
+            action: upsert
+          - key: environment
+            value: ${ENVIRONMENT}
+            action: upsert
+    
+    exporters:
+      logging:
+        verbosity: detailed
+      otlphttp:
+        endpoint: "https://api.honeycomb.io"
+        headers:
+          "x-honeycomb-team": "${HONEYCOMB_API_KEY}"
+          "x-honeycomb-dataset": "nexus-${ENVIRONMENT}"
+      prometheusremotewrite:
+        endpoint: "http://prometheus-operated.monitoring.svc.cluster.local:9090/api/v1/write"
+        tls:
+          insecure: false
+      awsxray:
+        region: ${AWS_REGION}
+      awsemf:
+        namespace: ContainerInsights
+        log_group_name: "/aws/containerinsights/${CLUSTER_NAME}/performance"
+        region: ${AWS_REGION}
+    
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp, jaeger, zipkin]
+          processors: [batch, memory_limiter, resource]
+          exporters: [otlphttp, awsxray, logging]
+        metrics:
+          receivers: [otlp, prometheus]
+          processors: [batch, memory_limiter, resource]
+          exporters: [prometheusremotewrite, awsemf, otlphttp, logging]
+        logs:
+          receivers: [otlp]
+          processors: [batch, memory_limiter, resource]
+          exporters: [awsemf, logging]
+  
+  mode: deployment
+  replicas: 3
+  
+  resources:
+    limits:
+      memory: 2Gi
+      cpu: "1"
+    requests:
+      memory: 512Mi
+      cpu: "500m"
+  
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - opentelemetry-collector
+            topologyKey: kubernetes.io/hostname
+  
+  tolerations:
+    - key: "dedicated"
+      operator: "Equal"
+      value: "observability"
+      effect: "NoSchedule"
+  
+  env:
+    - name: CLUSTER_NAME
+      valueFrom:
+        configMapKeyRef:
+          name: nexus-config
+          key: CLUSTER_NAME
+    - name: ENVIRONMENT
+      valueFrom:
+        configMapKeyRef:
+          name: environment-config
+          key: ENVIRONMENT
+    - name: AWS_REGION
+      valueFrom:
+        configMapKeyRef:
+          name: aws-config
+          key: AWS_REGION

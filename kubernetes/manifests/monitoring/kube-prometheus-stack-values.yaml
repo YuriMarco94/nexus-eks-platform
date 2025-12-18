@@ -1,162 +1,19 @@
-# Prometheus Stack com configurações otimizadas para EKS
 grafana:
   enabled: true
-  adminUser: admin
-  adminPassword: admin
-  
-  ingress:
-    enabled: true
-    annotations:
-      kubernetes.io/ingress.class: alb
-      alb.ingress.kubernetes.io/scheme: internal
-      alb.ingress.kubernetes.io/target-type: ip
-    hosts:
-      - grafana.nexus.internal
-  
-  persistence:
-    enabled: true
-    size: 10Gi
-    
-  sidecar:
-    dashboards:
-      enabled: true
-      
-  resources:
-    requests:
-      memory: 256Mi
-      cpu: 100m
-    limits:
-      memory: 512Mi
-      cpu: 500m
+  defaultDashboardsEnabled: true
+
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+
+  service:
+    type: LoadBalancer
 
 prometheus:
-  enabled: true
-  
   prometheusSpec:
-    retention: 7d
-    retentionSize: "10GB"
-    
-    storageSpec:
-      volumeClaimTemplate:
-        spec:
-          accessModes: ["ReadWriteOnce"]
-          resources:
-            requests:
-              storage: 20Gi
-              
-    resources:
-      requests:
-        memory: 512Mi
-        cpu: 500m
-      limits:
-        memory: 2Gi
-        cpu: 1000m
-        
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
 
 alertmanager:
   enabled: true
-  config:
-    global:
-      slack_api_url: ''
-    
-    route:
-      group_by: ['job']
-      group_wait: 30s
-      group_interval: 5m
-      repeat_interval: 12h
-      receiver: 'null'
-      
-    receivers:
-      - name: 'null'
-
-prometheusOperator:
-  admissionWebhooks:
-    enabled: true
-    
-  tls:
-    enabled: true
-    
-  resources:
-    requests:
-      memory: 200Mi
-      cpu: 100m
-    limits:
-      memory: 400Mi
-      cpu: 300m
-
-defaultRules:
-  create: true
-  
-  rules:
-    alertmanager: false
-    etcd: false
-    general: true
-    k8s: true
-    kubeApiserver: true
-    kubePrometheusNodeAlerting: true
-    kubePrometheusNodeRecording: true
-    kubernetesAbsent: true
-    kubernetesApps: true
-    kubernetesResources: true
-    kubernetesStorage: true
-    kubernetesSystem: true
-    network: true
-    node: true
-
-kubeControllerManager:
-  enabled: false
-
-kubeEtcd:
-  enabled: false
-
-kubeScheduler:
-  enabled: false
-
-kubeProxy:
-  enabled: false
-
-kubeStateMetrics:
-  enabled: true
-  resources:
-    requests:
-      memory: 64Mi
-      cpu: 25m
-    limits:
-      memory: 128Mi
-      cpu: 100m
-
-nodeExporter:
-  enabled: true
-  resources:
-    requests:
-      memory: 32Mi
-      cpu: 10m
-    limits:
-      memory: 64Mi
-      cpu: 50m
-
-# ServiceMonitors para serviços AWS
-additionalServiceMonitors:
-  - name: aws-ebs-csi-driver
-    selector:
-      matchLabels:
-        app.kubernetes.io/name: aws-ebs-csi-driver
-    namespaceSelector:
-      matchNames:
-        - kube-system
-    endpoints:
-      - port: http-metrics
-        interval: 30s
-        
-  - name: aws-load-balancer-controller
-    selector:
-      matchLabels:
-        app.kubernetes.io/name: aws-load-balancer-controller
-    namespaceSelector:
-      matchNames:
-        - kube-system
-    endpoints:
-      - port: http
-        interval: 30s

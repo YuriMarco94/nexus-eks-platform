@@ -1,0 +1,46 @@
+name: Deploy K8s PROD (Manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER_NAME: Nexus-prod
+
+jobs:
+  deploy-prod:
+    runs-on: ubuntu-latest
+    environment: prod
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::597088058179:role/GitHubActions-EKS-Deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.30.0"
+
+      - name: Configure kubeconfig
+        run: |
+          aws eks update-kubeconfig --name "${EKS_CLUSTER_NAME}" --region "${AWS_REGION}"
+          kubectl get nodes -o wide
+
+      - name: Apply PROD overlay
+        run: |
+          kubectl apply -k kubernetes/base
+          kubectl kustomize kubernetes/overlays/prod --load-restrictor LoadRestrictionsNone | kubectl apply -f -
+
+      - name: Summary
+        run: |
+          kubectl get ns || true
+          kubectl get httproute -A || true

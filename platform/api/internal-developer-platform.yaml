@@ -1,0 +1,71 @@
+# Backstage Configuration for Internal Developer Platform
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: nexus-platform
+  description: Internal Developer Platform for Nexus
+  tags:
+    - platform
+    - kubernetes
+    - aws
+spec:
+  type: service
+  lifecycle: production
+  owner: platform-engineering
+  system: nexus-platform
+  
+  # Service Catalog Entry
+  providesApis:
+    - kubernetes-api
+    - terraform-api
+    - monitoring-api
+    
+  # Dependencies
+  consumesApis:
+    - aws-api
+    - github-api
+    - vault-api
+    
+  # Documentation
+  links:
+    - url: https://nexus-platform.internal/docs
+      title: Platform Documentation
+    - url: https://grafana.nexus.internal
+      title: Monitoring Dashboard
+    - url: https://cost.nexus.internal
+      title: Cost Dashboard
+      
+  # API Specifications
+  apiSpec:
+    type: openapi
+    location: ./spec/openapi.yaml
+    
+  # CI/CD Configuration
+  ci:
+    type: github-actions
+    config:
+      workflows:
+        - .github/workflows/platform-ci.yaml
+        
+  # Infrastructure as Code
+  iac:
+    terraform:
+      modules:
+        - path: terraform/modules/networking
+        - path: terraform/modules/eks-cluster
+        - path: terraform/modules/iam
+    crossplane:
+      compositions:
+        - path: platform/compositions/eks-cluster.yaml
+        - path: platform/compositions/postgresql.yaml
+        
+  # Service Level Objectives
+  slos:
+    availability: 99.95
+    latency_p99: 200ms
+    error_budget: 0.05%
+    
+  # Cost Allocation
+  costCenter: EAGLE-01
+  businessUnit: Platform-Engineering
+  monthlyBudget: 5000

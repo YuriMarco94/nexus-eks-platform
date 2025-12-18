@@ -43,7 +43,7 @@ resource "aws_cloudwatch_metric_alarm" "node_cpu_high" {
   threshold           = "80"
   alarm_description   = "CPU utilização alta nos nós EKS"
   alarm_actions       = [] # Adicione SNS topics aqui se necessário
-  
+
   dimensions = {
     AutoScalingGroupName = var.cluster_name
   }
@@ -66,7 +66,7 @@ resource "aws_cloudwatch_metric_alarm" "node_memory_high" {
   threshold           = "85"
   alarm_description   = "Memória utilização alta nos nós EKS"
   alarm_actions       = [] # Adicione SNS topics aqui se necessário
-  
+
   dimensions = {
     AutoScalingGroupName = var.cluster_name
   }
@@ -81,9 +81,9 @@ resource "aws_cloudwatch_metric_alarm" "node_memory_high" {
 # ============================================
 resource "aws_cloudwatch_dashboard" "eks_dashboard" {
   count = var.enable_cloudwatch_metrics ? 1 : 0
-  
+
   dashboard_name = "${var.cluster_name}-dashboard"
-  
+
   dashboard_body = jsonencode({
     widgets = [
       {
@@ -97,11 +97,11 @@ resource "aws_cloudwatch_dashboard" "eks_dashboard" {
             ["AWS/EC2", "CPUUtilization", "AutoScalingGroupName", var.cluster_name, { stat = "Average", label = "CPU" }],
             ["System/Linux", "MemoryUtilization", "AutoScalingGroupName", var.cluster_name, { stat = "Average", label = "Memory" }]
           ]
-          view   = "timeSeries"
+          view    = "timeSeries"
           stacked = false
-          region = data.aws_region.current.name
-          title  = "EKS Node Resources"
-          period = 300
+          region  = data.aws_region.current.name
+          title   = "EKS Node Resources"
+          period  = 300
         }
       },
       {
@@ -115,16 +115,16 @@ resource "aws_cloudwatch_dashboard" "eks_dashboard" {
             ["AWS/EKS", "ClusterFailedNodeCount", "ClusterName", var.cluster_name, { stat = "Average", label = "Failed Nodes" }],
             ["AWS/EKS", "ClusterNodeCount", "ClusterName", var.cluster_name, { stat = "Average", label = "Total Nodes" }]
           ]
-          view   = "timeSeries"
+          view    = "timeSeries"
           stacked = false
-          region = data.aws_region.current.name
-          title  = "EKS Cluster Health"
-          period = 300
+          region  = data.aws_region.current.name
+          title   = "EKS Cluster Health"
+          period  = 300
         }
       }
     ]
   })
-}  # ⬅️ ESTE É O } QUE ESTÁ FALTANDO!
+}
 
 # Data source para região
 data "aws_region" "current" {}

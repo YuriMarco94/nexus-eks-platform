@@ -1,6 +1,40 @@
-# ============================================
+# terraform/environments/dev/main.tf
 
-# Módulo de Networking
+# =========================
+# DATA
+# =========================
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
+# Thumbprint OIDC do EKS (só funciona após cluster existir)
+data "tls_certificate" "eks_oidc" {
+  url = module.eks_cluster.cluster_oidc_issuer_url
+}
+
+# Validações práticas (evita mismatch NAT/subnets)
+resource "null_resource" "validate_subnets" {
+  triggers = {
+    public_len  = tostring(length(var.public_subnet_cidrs))
+    private_len = tostring(length(var.private_subnet_cidrs))
+  }
+
+  lifecycle {
+    precondition {
+      condition     = length(var.public_subnet_cidrs) == length(var.private_subnet_cidrs)
+      error_message = "public_subnet_cidrs e private_subnet_cidrs devem ter o MESMO tamanho."
+    }
+
+    precondition {
+      condition     = length(var.public_subnet_cidrs) >= 2
+      error_message = "Use pelo menos 2 subnets públicas/privadas (>=2 AZs) para EKS ficar saudável."
+    }
+  }
+}
+
+# =========================
+# NETWORKING
+# =========================
 module "networking" {
   source = "../../modules/networking"
 
@@ -14,66 +48,91 @@ module "networking" {
   tags = local.networking_tags
 }
 
-# Módulo de IAM
+# =========================
+# IAM (cluster + nodes + GitHub OIDC)
+# =========================
 module "iam" {
   source = "../../modules/iam"
 
-  project_name      = var.project_name
-  environment       = var.environment
-  cluster_name      = local.cluster_name
-  oidc_provider_url = "" # ⬅️ INICIALMENTE VAZIO - será preenchido depois
+  project_name               = var.project_name
+  environment                = var.environment
+  cluster_name               = local.cluster_name
+  github_repo                = var.github_repo
+  enable_github_actions_oidc = var.enable_github_actions_oidc
 
-  # IMPORTANTE: Adicionar dependência explícita
-  depends_on = [module.networking]
-
-  tags = local.common_tags
+  tags = merge(local.common_tags, { Component = "iam" })
 }
 
-# Módulo EKS Cluster
+# =========================
+# EKS CLUSTER
+# =========================
 module "eks_cluster" {
   source = "../../modules/eks-cluster"
 
-  # Configurações básicas
-  cluster_name                         = local.cluster_name
-  cluster_version                      = var.eks_cluster_version
-  cluster_endpoint_public_access       = local.env_config.eks_endpoint_public_access
-  cluster_endpoint_private_access      = local.env_config.eks_endpoint_private_access
+  cluster_name    = local.cluster_name
+  cluster_version = var.eks_cluster_version
+
+  cluster_endpoint_public_access       = var.eks_endpoint_public_access
+  cluster_endpoint_private_access      = var.eks_endpoint_private_access
   cluster_endpoint_public_access_cidrs = var.eks_endpoint_public_access_cidrs
 
-  # VPC e Subnets
   vpc_id         = module.networking.vpc_id
   subnet_ids     = module.networking.private_subnet_ids
   cluster_sg_ids = [module.networking.eks_cluster_security_group_id]
 
-  # IAM Roles
   cluster_role_arn = module.iam.eks_cluster_role_arn
   node_role_arn    = module.iam.eks_node_role_arn
 
-  # Configurações avançadas
   enabled_cluster_log_types = var.eks_enabled_cluster_log_types
-
-  # Add-ons
-  enable_aws_ebs_csi_driver = true
 
   tags = local.eks_tags
 
-  depends_on = [
-    module.networking,
-    module.iam
-  ]
+  depends_on = [module.networking, module.iam]
 }
 
-# Módulo de Managed Node Groups
+# =========================
+# OIDC PROVIDER DO EKS (IRSA base)
+# =========================
+resource "aws_iam_openid_connect_provider" "eks" {
+  url             = module.eks_cluster.cluster_oidc_issuer_url
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = [data.tls_certificate.eks_oidc.certificates[0].sha1_fingerprint]
+  tags            = local.common_tags
+}
+
+# =========================
+# EKS ADDONS - PRE NODES (CNI + kube-proxy)
+# - Esses precisam existir ANTES do nodegroup, senão os nodes tendem a ficar NotReady
+# =========================
+module "eks_addons_pre" {
+  source = "../../modules/eks-addons"
+
+  cluster_name = module.eks_cluster.cluster_name
+  tags         = local.eks_tags
+
+  # requer adicionar essas variáveis no módulo eks-addons (enable_vpc_cni/enable_kube_proxy/enable_coredns)
+  enable_vpc_cni    = true
+  enable_kube_proxy = true
+  enable_coredns    = false
+
+  # EBS CSI não deve rodar antes de ter node (vai ficar DEGRADED / Pending)
+  enable_aws_ebs_csi_driver = false
+
+  depends_on = [module.eks_cluster]
+}
+
+# =========================
+# MANAGED NODE GROUPS
+# =========================
 module "eks_managed_node_groups" {
   source = "../../modules/eks-node-groups"
 
-  for_each = local.env_config.eks_managed_node_groups
+  for_each = var.eks_managed_node_groups
 
   cluster_name    = module.eks_cluster.cluster_name
   node_group_name = "${local.cluster_name}-${each.key}"
   subnet_ids      = module.networking.private_subnet_ids
 
-  # Configurações do Node Group - AGORA COM TODOS OS CAMPOS NECESSÁRIOS
   instance_types = each.value.instance_types
   capacity_type  = each.value.capacity_type
   min_size       = each.value.min_size
@@ -85,84 +144,29 @@ module "eks_managed_node_groups" {
   labels         = try(each.value.labels, {})
   taints         = try(each.value.taints, [])
 
-  # IAM
   node_role_arn = module.iam.eks_node_role_arn
 
-  # Tags
-  tags = merge(local.eks_tags, {
-    NodeGroup = each.key
-  })
+  tags = merge(local.eks_tags, { NodeGroup = each.key })
 
-  depends_on = [
-    module.eks_cluster,
-    module.iam
-  ]
+  # GARANTE ordem correta: primeiro CNI/kube-proxy, depois nodes
+  depends_on = [module.eks_addons_pre]
 }
 
-# ============================================
-# OUTPUTS
-# ============================================
+# =========================
+# EKS ADDONS - POST NODES (CoreDNS + EBS CSI)
+# - Esses precisam de node pronto para agendar pods
+# =========================
+module "eks_addons_post" {
+  source = "../../modules/eks-addons"
 
-output "cluster_name" {
-  description = "Nome do cluster EKS"
-  value       = module.eks_cluster.cluster_name
-}
+  cluster_name = module.eks_cluster.cluster_name
+  tags         = local.eks_tags
 
-output "cluster_endpoint" {
-  description = "Endpoint do cluster EKS"
-  value       = module.eks_cluster.cluster_endpoint
-  sensitive   = true
-}
+  enable_vpc_cni    = false
+  enable_kube_proxy = false
+  enable_coredns    = true
 
-output "cluster_certificate_authority_data" {
-  description = "Dados do CA do cluster (base64)"
-  value       = module.eks_cluster.cluster_certificate_authority_data
-  sensitive   = true
-}
+  enable_aws_ebs_csi_driver = var.enable_aws_ebs_csi_driver
 
-output "cluster_oidc_issuer_url" {
-  description = "URL do OIDC Issuer para IAM Roles for Service Accounts"
-  value       = module.eks_cluster.cluster_oidc_issuer_url
-}
-
-output "vpc_id" {
-  description = "ID da VPC"
-  value       = module.networking.vpc_id
-}
-
-output "private_subnet_ids" {
-  description = "IDs das subnets privadas"
-  value       = module.networking.private_subnet_ids
-}
-
-output "public_subnet_ids" {
-  description = "IDs das subnets públicas"
-  value       = module.networking.public_subnet_ids
-}
-
-output "configure_kubectl" {
-  description = "Comando para configurar kubectl"
-  value       = "aws eks update-kubeconfig --name ${module.eks_cluster.cluster_name} --region ${var.aws_region} --profile ${var.aws_profile}"
-}
-
-output "deployment_summary" {
-  description = "Resumo da implantação"
-  value       = <<-EOT
-  =================================================
-  NEXUS EKS CLUSTER - DEPLOYMENT SUMMARY
-  =================================================
-  
-  Cluster: ${module.eks_cluster.cluster_name}
-  Region:  ${var.aws_region}
-  Profile: ${var.aws_profile}
-  Environment: ${var.environment}
-  
-  Para configurar kubectl:
-  aws eks update-kubeconfig --name ${module.eks_cluster.cluster_name} --region ${var.aws_region} --profile ${var.aws_profile}
-  
-  Para verificar o cluster:
-  kubectl cluster-info
-  kubectl get nodes
-  
-  EOT
+  depends_on = [module.eks_managed_node_groups]
 }

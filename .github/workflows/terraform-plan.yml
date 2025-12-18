@@ -1,0 +1,70 @@
+name: Terraform Plan (PR)
+
+on:
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - "terraform/**"
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  plan-dev:
+    name: Plan DEV
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: terraform/environments/dev
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::597088058179:role/GitHubActions-EKS-Deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform fmt/validate/plan
+        run: |
+          terraform fmt -recursive
+          terraform init -reconfigure
+          terraform validate
+          terraform plan -no-color -out=tfplan
+
+  plan-prod:
+    name: Plan PROD
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: terraform/environments/prod
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::597088058179:role/GitHubActions-EKS-Deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform fmt/validate/plan
+        run: |
+          terraform fmt -recursive
+          terraform init -reconfigure
+          terraform validate
+          terraform plan -no-color -out=tfplan

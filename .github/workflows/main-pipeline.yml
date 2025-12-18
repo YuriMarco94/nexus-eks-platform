@@ -1,62 +1,346 @@
-name: Main Pipeline - EKS Complete
+name: Nexus Platform - DevSecOps / FinOps Pipeline
 
 on:
-  push:
-    branches:
-      - master
-      - develop
   pull_request:
-    branches:
-      - master
+    branches: ["main"]
+    paths:
+      - "terraform/**"
+      - "kubernetes/**"
+      - "security/**"
+      - "finops/**"
+      - ".github/workflows/**"
+
+  push:
+    branches: ["main"]
+    paths:
+      - "terraform/**"
+      - "kubernetes/**"
+      - "security/**"
+      - "finops/**"
+      - ".github/workflows/**"
+
   workflow_dispatch:
     inputs:
-      environment:
-        description: "Environment"
+      target_env:
+        description: "Environment to run (staging/prod via manual run)"
         required: true
-        default: "dev"
         type: choice
-        options:
-          - dev
-          - staging
-          - prod
-      skip-terraform:
-        description: "Skip Terraform"
-        required: false
-        default: false
-        type: boolean
-      skip-build:
-        description: "Skip Build"
-        required: false
-        default: false
-        type: boolean
-      skip-deploy:
-        description: "Skip Deploy"
-        required: false
-        default: false
-        type: boolean
+        options: [dev, staging, prod]
+        default: dev
+      action:
+        description: "plan or apply"
+        required: true
+        type: choice
+        options: [plan, apply]
+        default: apply
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: nexus-platform-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TF_VERSION: "1.9.0"
+  AWS_REGION: "us-east-1"
+  # Opcional: evita prompts em comandos que possam pedir input
+  TF_IN_AUTOMATION: "true"
 
 jobs:
-  call-complete-pipeline:
-    # Referência ao template CORRIGIDO e REORGANIZADO
-    uses: YuriMarco94/pipeline-templates/.github/workflows/deploy-template-complete.yml@master
-    with:
-      # Configurações principais
-      environment: ${{ github.event.inputs.environment || 'dev' }}
-      project-name: "Nexus"
-      aws-region: "us-east-1"
-      
-      # Configurações específicas do seu projeto
-      terraform-path: "terraform/environments/${{ github.event.inputs.environment || 'dev' }}"
-      docker-image-name: "demo-app"
-      dockerfile-path: "Dockerfile"
-      context: "."
-      k8s-manifest-path: "kubernetes"
-      k8s-overlay: "${{ github.event.inputs.environment || 'dev' }}"
-      
-      # Controles de execução
-      skip-terraform: ${{ github.event.inputs.skip-terraform || false }}
-      skip-build: ${{ github.event.inputs.skip-build || false }}
-      skip-deploy: ${{ github.event.inputs.skip-deploy || false }}
-      deploy-addons: true
-      
-    secrets: inherit
+  quality-security:
+    name: Quality + Security (fmt/tflint/tfsec/checkov/trivy/gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform fmt (check)
+        shell: bash
+        run: |
+          terraform fmt -recursive -check
+
+      - name: Install tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sSL https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+          curl -sSL https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
+          pipx install checkov
+          curl -sfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/scripts/install.sh | bash
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: TFLint
+        shell: bash
+        run: |
+          set -euo pipefail
+          tflint --init
+          tflint -f compact
+
+      - name: TFSec
+        shell: bash
+        run: |
+          set -euo pipefail
+          tfsec terraform --no-color
+
+      - name: Checkov
+        shell: bash
+        run: |
+          set -euo pipefail
+          checkov -d terraform --quiet
+
+      - name: Trivy FS (IaC + deps)
+        shell: bash
+        run: |
+          set -euo pipefail
+          trivy fs --no-progress --scanners vuln,secret,misconfig .
+
+      - name: Gitleaks (soft-fail)
+        shell: bash
+        run: |
+          set -euo pipefail
+          gitleaks detect --no-git -v || true
+
+  terraform-plan:
+    name: Terraform Plan + OPA + Infracost (PR / Dispatch)
+    needs: [quality-security]
+    if: |
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' && inputs.action == 'plan')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Choose AWS Role ARN
+        id: role
+        shell: bash
+        run: |
+          set -euo pipefail
+          ENV_NAME="${{ matrix.env }}"
+          if [ "$ENV_NAME" = "dev" ]; then
+            echo "ROLE_ARN=${{ vars.AWS_ROLE_ARN_DEV }}" >> $GITHUB_OUTPUT
+          elif [ "$ENV_NAME" = "staging" ]; then
+            echo "ROLE_ARN=${{ vars.AWS_ROLE_ARN_STAGING }}" >> $GITHUB_OUTPUT
+          else
+            echo "ROLE_ARN=${{ vars.AWS_ROLE_ARN_PROD }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ steps.role.outputs.ROLE_ARN }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        working-directory: terraform/environments/${{ matrix.env }}
+        run: terraform init -reconfigure
+
+      - name: Terraform Validate
+        working-directory: terraform/environments/${{ matrix.env }}
+        run: terraform validate
+
+      - name: Terraform Plan (binary + json)
+        working-directory: terraform/environments/${{ matrix.env }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          terraform plan -out=tfplan
+          terraform show -json tfplan > tfplan.json
+
+      - name: Upload Plan Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ matrix.env }}
+          path: |
+            terraform/environments/${{ matrix.env }}/tfplan
+            terraform/environments/${{ matrix.env }}/tfplan.json
+
+      - name: Conftest (OPA) - Terraform Plan (soft-fail)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sSL https://github.com/open-policy-agent/conftest/releases/latest/download/conftest_0.56.0_Linux_x86_64.tar.gz \
+            | tar -xz
+          sudo mv conftest /usr/local/bin/conftest
+          # Se não houver policies ainda, não quebra PR
+          if [ -d "security/policies/terraform" ]; then
+            conftest test terraform/environments/${{ matrix.env }}/tfplan.json -p security/policies/terraform || true
+          else
+            echo "No OPA policies folder found (security/policies/terraform). Skipping."
+          fi
+
+      - name: Setup Infracost
+        uses: infracost/actions/setup@v3
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+      - name: Infracost Breakdown
+        shell: bash
+        env:
+          INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
+        run: |
+          set -euo pipefail
+          infracost breakdown \
+            --path terraform/environments/${{ matrix.env }} \
+            --format json \
+            --out-file infracost-${{ matrix.env }}.json
+
+      - name: Infracost Comment on PR
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          infracost comment github \
+            --path infracost-${{ matrix.env }}.json \
+            --repo $GITHUB_REPOSITORY \
+            --pull-request ${{ github.event.pull_request.number }} \
+            --github-token $GITHUB_TOKEN
+
+  terraform-apply:
+    name: Terraform Apply + Addons + Deploy K8s
+    needs: [quality-security]
+    if: |
+      (github.event_name == 'push') ||
+      (github.event_name == 'workflow_dispatch' && inputs.action == 'apply')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev]
+    environment: ${{ matrix.env }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Choose Environment (dispatch override)
+        id: chosen
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "ENV_NAME=${{ inputs.target_env }}" >> $GITHUB_OUTPUT
+          else
+            echo "ENV_NAME=${{ matrix.env }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Choose AWS Role ARN
+        id: role
+        shell: bash
+        run: |
+          set -euo pipefail
+          ENV_NAME="${{ steps.chosen.outputs.ENV_NAME }}"
+          if [ "$ENV_NAME" = "dev" ]; then
+            echo "ROLE_ARN=${{ vars.AWS_ROLE_ARN_DEV }}" >> $GITHUB_OUTPUT
+          elif [ "$ENV_NAME" = "staging" ]; then
+            echo "ROLE_ARN=${{ vars.AWS_ROLE_ARN_STAGING }}" >> $GITHUB_OUTPUT
+          else
+            echo "ROLE_ARN=${{ vars.AWS_ROLE_ARN_PROD }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ steps.role.outputs.ROLE_ARN }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      # -----------------------------
+      # 1) Infra (EKS/VPC/IAM)
+      # -----------------------------
+      - name: Terraform Init (infra)
+        working-directory: terraform/environments/${{ steps.chosen.outputs.ENV_NAME }}
+        run: terraform init -reconfigure
+
+      - name: Terraform Apply (infra)
+        working-directory: terraform/environments/${{ steps.chosen.outputs.ENV_NAME }}
+        run: terraform apply -auto-approve
+
+      # -----------------------------
+      # 2) Tools: kubectl
+      # -----------------------------
+      - name: Install kubectl
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sSL -o kubectl https://dl.k8s.io/release/$(curl -sSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/kubectl
+
+      - name: Configure kubeconfig from Terraform output
+        working-directory: terraform/environments/${{ steps.chosen.outputs.ENV_NAME }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          terraform output -raw configure_kubectl > /tmp/kubeconfig_cmd.sh
+          bash /tmp/kubeconfig_cmd.sh
+          kubectl version --client
+          kubectl get ns
+
+      # -----------------------------
+      # 3) Addons (se existir)
+      # Ex.: terraform/environments/dev-addons
+      # -----------------------------
+      - name: Terraform Apply (addons if exists)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ADDONS_DIR="terraform/environments/${{ steps.chosen.outputs.ENV_NAME }}-addons"
+          if [ -d "$ADDONS_DIR" ]; then
+            echo "Applying addons in $ADDONS_DIR"
+            terraform -chdir="$ADDONS_DIR" init -reconfigure
+            terraform -chdir="$ADDONS_DIR" apply -auto-approve
+          else
+            echo "No addons directory found at $ADDONS_DIR. Skipping."
+          fi
+
+      # -----------------------------
+      # 4) Gateway API CRDs (kustomize remoto)
+      # -----------------------------
+      - name: Install Gateway API CRDs
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl apply -k kubernetes/manifests/gateway-api
+          kubectl api-resources | grep -i gateway || true
+
+      # -----------------------------
+      # 5) Deploy manifests (overlays)
+      # -----------------------------
+      - name: Deploy workloads (kustomize overlay)
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl apply -k kubernetes/overlays/${{ steps.chosen.outputs.ENV_NAME }}
+          kubectl get ns
+          kubectl get pods -A
+
+      - name: Post-check (pods healthy)
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl get pods -A
+          # Se existir namespace dev/prod, dá uma olhada rápida:
+          kubectl get pods -n dev || true
+          kubectl get pods -n prod || true

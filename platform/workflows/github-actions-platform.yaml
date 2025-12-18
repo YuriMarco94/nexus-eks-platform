@@ -1,0 +1,146 @@
+name: Platform Engineering Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Platform Action'
+        required: true
+        type: choice
+        options:
+          - provision-cluster
+          - update-cluster
+          - cost-report
+          - security-scan
+          - compliance-check
+      environment:
+        description: 'Target Environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      approval:
+        description: 'Requires Approval'
+        type: boolean
+        default: true
+
+permissions:
+  id-token: write
+  contents: read
+  issues: write
+  pull-requests: write
+  security-events: write
+
+jobs:
+  platform-action:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActionsPlatform
+          aws-region: ${{ vars.AWS_REGION }}
+          
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+          
+      - name: Terraform Init
+        run: |
+          cd terraform/environments/${{ github.event.inputs.environment }}
+          terraform init -backend-config=backend.hcl
+          
+      - name: Security Scan (Checkov)
+        if: github.event.inputs.action == 'provision-cluster' || github.event.inputs.action == 'update-cluster'
+        run: |
+          checkov -d terraform/ --quiet --compact --framework terraform_plan
+          
+      - name: Cost Estimation (Infracost)
+        if: always()
+        uses: infracost/actions/setup@v3
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+          
+      - name: Generate Cost Report
+        if: always()
+        run: |
+          cd terraform/environments/${{ github.event.inputs.environment }}
+          terraform plan -out=tfplan
+          infracost breakdown --path tfplan --format json --out-file infracost.json
+          
+      - name: Upload Cost Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cost-report-${{ github.event.inputs.environment }}
+          path: infracost.json
+          
+      - name: Compliance Check (OPA)
+        if: github.event.inputs.action == 'compliance-check'
+        run: |
+          conftest test terraform/environments/${{ github.event.inputs.environment }} --policy compliance/policies/
+          
+      - name: Require Approval for Production
+        if: github.event.inputs.environment == 'prod' && github.event.inputs.approval == true
+        uses: trstringer/manual-approval@v1
+        with:
+          secret: ${{ github.token }}
+          approvers: platform-leads,engineering-managers
+          minimum-approvals: 2
+          issue-title: "Production Deployment Approval Required"
+          issue-body: |
+            **Platform Action:** ${{ github.event.inputs.action }}
+            **Environment:** ${{ github.event.inputs.environment }}
+            
+            **Cost Estimate:** [View Cost Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            **Security Scan:** [View Security Report](https://github.com/${{ github.repository }}/security/code-scanning)
+            
+            **Approvers required from:**
+            - Platform Engineering Lead
+            - Engineering Manager
+            - Security Officer
+            
+      - name: Execute Platform Action
+        run: |
+          cd scripts/platform/
+          ./execute-action.sh \
+            --action "${{ github.event.inputs.action }}" \
+            --environment "${{ github.event.inputs.environment }}" \
+            --approval "${{ github.event.inputs.approval }}"
+            
+      - name: Update Service Catalog
+        if: success()
+        run: |
+          cd platform/api
+          ./update-catalog.sh --environment "${{ github.event.inputs.environment }}"
+          
+      - name: Send Notification
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          fields: repo,message,commit,author,action,eventName,ref,workflow,job,took
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PLATFORM_WEBHOOK }}
+          
+      - name: Create Post-Mortem on Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { exec } = require('child_process');
+            exec('gh issue create --title "Platform Action Failed: ${{ github.event.inputs.action }}" --body "See workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" --label "incident,platform"', (error, stdout, stderr) => {
+              if (error) {
+                console.error(`Error creating issue: ${error}`);
+                return;
+              }
+              console.log(`Issue created: ${stdout}`);
+            });

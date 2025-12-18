@@ -1,0 +1,17 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: nexus-api
+  namespace: nexus
+spec:
+  parentRefs:
+  - name: nexus-gw
+    namespace: nginx-gateway
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /nexus
+    backendRefs:
+    - name: nexus-api
+      port: 80

@@ -1,0 +1,47 @@
+# Kubecost enterprise-grade configuration
+kubecostProductConfigs:
+  clusterName: ${CLUSTER_NAME}
+  cloudProvider: "aws"
+  cloudIntegrationSecret: "cloud-integration"
+  
+prometheus:
+  server:
+    persistentVolume:
+      size: 32Gi
+    resources:
+      requests:
+        memory: 32Gi
+        cpu: 4
+
+kubecostFrontend:
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+
+kubecostModel:
+  resources:
+    requests:
+      memory: 4Gi
+      cpu: 1
+
+# AWS integration for Spot instances and RI recommendations
+aws:
+  spotDataFeed:
+    enabled: true
+  athenaProjectID: "${AWS_ACCOUNT_ID}"
+  serviceKeyName: "kubecost"
+  serviceKeySecretName: "aws-service-key"
+
+# Savings recommendations
+savingsRecommendation:
+  enabled: true
+  slackWebhookUrl: "${SLACK_WEBHOOK}"
+  notifyEmails:
+    - "finops@company.com"
+
+# Export metrics to CloudWatch
+metrics:
+  emitAWSMetrics: true
+  awsAccountID: "${AWS_ACCOUNT_ID}"
+  awsRegion: "${AWS_REGION}"
