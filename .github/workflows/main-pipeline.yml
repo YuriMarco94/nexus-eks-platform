@@ -344,3 +344,4 @@ jobs:
           # Se existir namespace dev/prod, dá uma olhada rápida:
           kubectl get pods -n dev || true
           kubectl get pods -n prod || true
+
