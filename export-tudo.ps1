@@ -137,14 +137,7 @@ $yamlContent += [Environment]::NewLine + "kubernetes:" + [Environment]::NewLine
 # Lista de todos os arquivos Kubernetes
 $k8sArquivos = @(
     "kubernetes/base/kustomization.yaml",
-    "kubernetes/demo/nginx-demo.yaml",
-    "kubernetes/gateway/nginx-ingress.yaml",
     "kubernetes/manifests/dashboard/kubernetes-dashboard-values.yaml",
-    "kubernetes/manifests/demo/deployment.yaml",
-    "kubernetes/manifests/demo/ingress.yaml",
-    "kubernetes/manifests/demo/namespace.yaml",
-    "kubernetes/manifests/demo/service.yaml",
-    "kubernetes/manifests/demo/values.yaml",
     "kubernetes/manifests/gateway/namespace.yaml",
     "kubernetes/manifests/gateway/nginx-config.yaml",
     "kubernetes/manifests/monitoring/kube-prometheus-stack-values.yaml",
